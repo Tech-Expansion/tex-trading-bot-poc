@@ -1,0 +1,129 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                   String                @id @default(uuid()) @db.Uuid
+  telegramId           String                @db.VarChar(64)
+  username             String?               @db.VarChar(256)
+  allowAcceleratedSign Boolean               @default(true)
+  isDisabled           Boolean               @default(false)
+  createdAt            DateTime              @default(now())
+
+  wallets              Wallet[]
+  priceAlerts          PriceAlert[]
+  watchedTokenPairs    UserTokenPairWatch[]
+}
+
+model Wallet {
+  id            String    @id @default(uuid()) @db.Uuid
+  userId        String    @db.Uuid
+  stakeId       String    @unique @db.VarChar(256)
+  hashedKey     String?   @db.VarChar(1024)
+  salt          String?   @db.VarChar(32)
+  createdAt     DateTime  @default(now())
+  user          User      @relation(fields: [userId], references: [id])
+
+  addresses     Address[]
+  orders        Order[]
+}
+
+model Address {
+  id        String    @id @default(uuid()) @db.Uuid
+  walletId  String    @db.Uuid
+  address   String    @unique @db.VarChar(256)
+  createdAt DateTime  @default(now())
+
+  wallet    Wallet   @relation(fields: [walletId], references: [id])
+}
+
+model Token {
+  id            String  @id @default(uuid()) @db.Uuid
+  policyId      String  @db.VarChar(256)
+  tokenHexName  String  @db.VarChar(256)
+  tokenName     String  @db.VarChar(256)
+  isValidated   Boolean @default(false)
+  isDisabled    Boolean @default(false)
+  decimals      Int?
+  tokenPairsA   TokenPair[] @relation("TokenA")
+  tokenPairsB   TokenPair[] @relation("TokenB")
+
+  @@unique([policyId, tokenHexName], name: "unique_policy_token")
+}
+
+model TokenPair {
+  id                    String  @id @default(uuid()) @db.Uuid
+  tokenAId              String  @db.Uuid
+  tokenBId              String  @db.Uuid
+  isMainPair            Boolean
+  sequence              Int
+  poolId                String  @db.VarChar(256) @default("unknown")
+  isEnablePriceHistory  Boolean @default(false)
+
+  tokenA        Token   @relation("TokenA", fields: [tokenAId], references: [id])
+  tokenB        Token   @relation("TokenB", fields: [tokenBId], references: [id])
+
+  priceAlerts   PriceAlert[]
+  watchedBy     UserTokenPairWatch[]
+  historyPrices TokenPairHistoryPrice[]
+  orders        Order[]
+
+  @@unique([tokenAId, tokenBId, poolId], name: "unique_token_pair")
+}
+
+model TokenPairHistoryPrice {
+  id                    String    @id @default(uuid()) @db.Uuid
+  tokenPairId           String    @db.Uuid
+  price                 Decimal   @db.Decimal(60, 30)
+  timestamp             DateTime  @default(now())
+
+  tokenpair   TokenPair @relation(fields: [tokenPairId], references: [id])
+}
+
+model Order {
+  id              String    @id @default(uuid()) @db.Uuid
+  orderCode       String?    @unique @db.VarChar(32)
+  walletId        String    @db.Uuid
+  tokenPairId     String    @db.Uuid
+  orderType       Int
+  status          Int
+  amount          Decimal   @db.Decimal(60, 30)
+  marketPrice     Decimal?  @db.Decimal(60, 30)
+  limitPrice      Decimal?  @db.Decimal(60, 30)
+  stopPrice       Decimal?  @db.Decimal(60, 30)
+  slippage        Decimal?  @db.Decimal(7, 3)
+  expirationTime  DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime?
+
+  wallet          Wallet    @relation(fields: [walletId], references: [id])
+  tokenpair       TokenPair @relation(fields: [tokenPairId], references: [id])
+}
+
+model PriceAlert {
+  id          String     @id @default(uuid()) @db.Uuid
+  userId      String     @db.Uuid
+  tokenPairId String     @db.Uuid
+  alertPrice  Decimal    @db.Decimal(60, 30)
+  isHigher    Boolean
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime?
+
+  user        User       @relation(fields: [userId], references: [id])
+  tokenpair   TokenPair  @relation(fields: [tokenPairId], references: [id])
+}
+
+model UserTokenPairWatch {
+  id          String     @id @default(uuid()) @db.Uuid
+  userId      String     @db.Uuid
+  tokenPairId String     @db.Uuid
+  sequence    Int
+
+  user        User       @relation(fields: [userId], references: [id])
+  tokenpair   TokenPair  @relation(fields: [tokenPairId], references: [id])
+}
