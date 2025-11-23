@@ -1,22 +1,12 @@
+import { configDotenv } from 'dotenv';
 import { Logger } from 'pino';
 import { logger } from '../../domain/extensions/logger';
 import { CardanoNetwork } from '@blockfrost/blockfrost-js/lib/types';
-import dotenv from 'dotenv';
-import path from 'path';
 
-// Dynamically load the correct .env file based on NODE_ENV
-const env = process.env.NODE_ENV || 'local';
-const envFileMap: Record<string, string> = {
-  local: '.env',
-  development: '.env.dev',
-  production: '.env.prod',
-};
-const envFile = envFileMap[env] || '.env';
-dotenv.config({ path: path.resolve(process.cwd(), envFile), override: true }); // Force overwrite
+configDotenv();
 
 const retrieveEnvVariable = (variableName: string, logger: Logger) => {
   const variable = process.env[variableName] || '';
-
   if (!variable) {
     logger.error(`${variableName} is not set`);
     process.exit(1);
@@ -69,4 +59,8 @@ export enum REDIS_KEY {
   PRIVATE_KEY = "privateKey", 
   TELEGRAM_ID = "telegramId",
   STAKE_ID = "stakeId", 
+}
+
+export enum REDIS_TTL {
+  OneDay = 86400
 }

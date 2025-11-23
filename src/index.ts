@@ -5,7 +5,7 @@ import './application/jobs/order-processor';
 import './application/jobs/poll-tx-confirm';
 import SessionManager from './application/utils/session/SessionManager';
 import { logger } from './domain/extensions/logger';
-import { handleFlowInput, startFlow } from './presentation/base-flow';
+import { handleFlowInput, handleFlowCallback, startFlow } from './presentation/base-flow';
 import {
   createOrderFlow,
   orderHistoryFlow,
@@ -13,13 +13,13 @@ import {
   orderStatusFlow,
   pricingFlow,
 } from './presentation/order-flow';
-import { createAccountFlow, loginFlow, usePrivateKeyFlow } from './presentation/user-flow';
 import {
   watchlistAddFlow,
   watchlistFlow,
   watchlistRemoveFlow,
 } from './presentation/watchlist-flow';
 import { setupMenu } from './presentation/menu';
+import { createAccountV2Flow, getSeedPhrase, loginFlow } from './presentation/user-flow-v2';
 
 async function main() {
   const bot = new Bot(BOT_TOKEN);
@@ -27,7 +27,7 @@ async function main() {
   setupEventListeners();
 
   bot.command('start', (ctx) => {
-    ctx.reply('Welcome to tex bot!. Type /menu to see the commands.');
+    startFlow(ctx, createAccountV2Flow);
   });
 
   //#region Swapping
@@ -41,16 +41,12 @@ async function main() {
   //#endregion
 
   //#region User
-  bot.command('register', (ctx) => {
-    startFlow(ctx, createAccountFlow);
-  });
-
   bot.command('login', (ctx) => {
     startFlow(ctx, loginFlow);
   });
 
-  bot.command('privateKey', (ctx) => {
-    startFlow(ctx, usePrivateKeyFlow);
+  bot.command('seed', (ctx) => {
+    startFlow(ctx, getSeedPhrase);
   });
   //#endregion
 
@@ -96,6 +92,7 @@ async function main() {
   //#endregion
 
   bot.on('message:text', handleFlowInput);
+  bot.on('callback_query', handleFlowCallback);
 
   setTimeout(() => {
     bot.start();

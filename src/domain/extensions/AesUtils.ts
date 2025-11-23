@@ -42,6 +42,29 @@ class AesUtils {
         decrypted += decipher.final('utf8');
         return decrypted;
     }
+
+    encryptPrivateKey(
+        privateKey: string,
+        password: string = ''
+    ): { encryptedKey: string; salt: string } {
+        const aesUtils = AesUtils.getInstance();
+        const salt = crypto.randomBytes(16).toString('hex');
+        const saltedPassword = password + salt;
+        aesUtils.generateKey(saltedPassword);
+        const encryptedKey = aesUtils.encrypt(privateKey);
+        return { encryptedKey, salt };
+    }
+
+    decryptPrivateKey(
+        encryptedKey: string,
+        salt: string,
+        password: string = ''
+    ): string {
+        const aesUtils = AesUtils.getInstance();
+        const saltedPassword = password + salt;
+        aesUtils.generateKey(saltedPassword);
+        return aesUtils.decrypt(encryptedKey);
+    }
 }
 
 export default AesUtils;

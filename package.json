@@ -1,5 +1,5 @@
 {
-  "name": "tex-trading-bot-poc",
+  "name": "poc-tex-bot-v1",
   "version": "1.0.0",
   "type": "module",
   "main": "dist/index.js",
@@ -10,8 +10,8 @@
   "scripts": {
     "exec": "tsx",
     "build": "node esbuild.config.mjs",
-    "start:dev": "cross-env NODE_ENV=development node --experimental-wasm-modules dist/index.js",
-    "dev": "cross-env NODE_ENV=local NODE_OPTIONS=--experimental-wasm-modules tsx src/index.ts",
+    "start": "node --experimental-wasm-modules dist/index.js dist/index.js",
+    "dev": "cross-env NODE_OPTIONS=--experimental-wasm-modules tsx src/index.ts",
     "test": "cross-env NODE_OPTIONS=--experimental-wasm-modules jest && tsc",
     "format": "prettier --write '**/*.{ts,tsx,js,json}'"
   },
@@ -48,7 +48,7 @@
     "@minswap/sdk": "^0.4.3",
     "@minswap/tiny-invariant": "^1.2.0",
     "@prisma/client": "^6.5.0",
-    "@spacebudz/lucid": "npm:@jsr/spacebudz__lucid@^0.20.4",
+    "@spacebudz/lucid": "npm:@jsr/spacebudz__lucid@^0.20.12",
     "big.js": "^6.2.1",
     "bip39": "^3.1.0",
     "dotenv": "^16.4.7",
