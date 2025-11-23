@@ -20,7 +20,7 @@ export const watchlistFlow: CommandFlow = {
       }
 
       const replyMessage =
-        `Your tokens and 1 Hour change:\n\n` +
+        `Your tokens and 24 Hours change:\n\n` +
         watchlist.tokens
           .map((token) => {
             const price = token.price.toFixed(4); // Format price to 4 decimal places

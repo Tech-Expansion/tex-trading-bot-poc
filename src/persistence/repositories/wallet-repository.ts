@@ -3,6 +3,7 @@ import { DefaultArgs } from '@prisma/client/runtime/library';
 import { WalletRepository } from '../../application/repositories/wallet-repository';
 import { prismaClient } from '../../infrastructure/prisma/prisma-client';
 import { PrismaBaseRepository } from './_base.repository';
+import { EncryptedPrivateKey } from '../../application/services/wallet/model';
 
 export class PrismaWalletRepository
   extends PrismaBaseRepository<Wallet, Prisma.WalletUncheckedCreateInput, Partial<Wallet>>
@@ -30,5 +31,26 @@ export class PrismaWalletRepository
     return await this._prismaClient.findFirst({
       where: { userId },
     });
+  }
+
+  async getEncryptedPrivateKeyByTelegramId(telegramId: string): Promise<EncryptedPrivateKey> {
+    const wallet = await this._prismaClient.findFirst({
+      where: {
+        user: {
+          telegramId: telegramId,
+        },
+      },
+      select: {
+        hashedKey: true,
+        salt: true,
+      },
+    });
+
+    const encryptedKey: EncryptedPrivateKey = {
+      encryptedPrivateKey: wallet?.hashedKey || null,
+      salt: wallet?.salt || null,
+    };
+
+    return encryptedKey;
   }
 }

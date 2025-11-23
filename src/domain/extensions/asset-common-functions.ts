@@ -25,7 +25,7 @@ export const getAssetNameFromUnit = (unit: string): string => {
 
     return bytes.toString('utf8');
   } catch (error) {
-    console.error('Không thể decode assetName:', error);
+    console.error('Failed to decode assetName:', error);
     return '';
   }
 };

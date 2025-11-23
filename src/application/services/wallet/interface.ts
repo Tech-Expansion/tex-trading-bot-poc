@@ -5,4 +5,5 @@ export interface WalletServiceInterface {
     findWalletByStakeId(stakeId: string): Promise<Wallet | null>;
     findWalletsByUserId(userId: string): Promise<Wallet[]>;
     updateWallet(id: string, data: Partial<Wallet>): Promise<Wallet | null>;
+    getDecryptedPrivateKey(telegramId: string, password: string): Promise<string>;
 }
