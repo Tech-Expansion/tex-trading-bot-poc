@@ -234,3 +234,157 @@ const getCurrentUser = async (telegramId?: string): Promise<User> => {
 
   return user;
 };
+
+/**
+ * Quick order command - allows creating orders in a single line
+ * Format: /fast <pair> <type> <amount> <slippage> [limitPrice]
+ * Example: /fast ADA/MIN market 100 0.5
+ * Example: /fast ADA/MIN limit 100 0.5 1.25
+ */
+export const quickOrderFlow: CommandFlow = {
+  steps: [],
+  finalize: async (ctx) => {
+    try {
+      const telegramId = ctx.from?.id?.toString();
+      if (!telegramId) {
+        await ctx.reply('❗ Unable to identify user.');
+        return;
+      }
+
+      // Get the full message text and remove the command part
+      const messageText = ctx.message?.text || '';
+      const initialInput = messageText.replace(/^\/\w+\s*/, '').trim();
+
+      // Parse the command input
+      // Expected format: <pair> <type> <amount> <slippage> [limitPrice]
+      if (!initialInput) {
+        await ctx.reply(
+          '❗ <b>Invalid format!</b>\n\n' +
+          '📝 <b>Usage:</b>\n' +
+          '<code>/quickorder &lt;pair&gt; &lt;type&gt; &lt;amount&gt; &lt;slippage&gt; [limitPrice]</code>\n\n' +
+          '💡 <b>Examples:</b>\n' +
+          '• <code>/quickorder ADA/MIN market 100 0.5</code>\n' +
+          '• <code>/quickorder ADA/MIN limit 100 0.5 1.25</code>\n\n' +
+          '<b>Parameters:</b>\n' +
+          '• <b>pair:</b> Token pair (e.g., ADA/MIN)\n' +
+          '• <b>type:</b> market or limit\n' +
+          '• <b>amount:</b> Order amount\n' +
+          '• <b>slippage:</b> Slippage percentage\n' +
+          '• <b>limitPrice:</b> Required for limit orders',
+          { parse_mode: 'HTML' }
+        );
+        return;
+      }
+
+      const parts = initialInput.trim().split(/\s+/);
+      
+      if (parts.length < 4) {
+        await ctx.reply(
+          '❗ <b>Missing parameters!</b>\n\n' +
+          '📝 <b>Usage:</b>\n' +
+          '<code>/quickorder &lt;pair&gt; &lt;type&gt; &lt;amount&gt; &lt;slippage&gt; [limitPrice]</code>\n\n' +
+          '💡 <b>Example:</b> <code>/quickorder ADA/MIN market 100 0.5</code>',
+          { parse_mode: 'HTML' }
+        );
+        return;
+      }
+
+      const [tokenPairName, orderTypeInput, amountInput, slippageInput, limitPriceInput] = parts;
+
+      // Validate order type
+      const orderType = orderTypeInput.toLowerCase();
+      if (orderType !== 'market' && orderType !== 'limit') {
+        await ctx.reply('❗ Order type must be "market" or "limit".');
+        return;
+      }
+
+      // Validate amount
+      const amount = Number(amountInput);
+      if (isNaN(amount) || amount <= 0) {
+        await ctx.reply('❗ Amount must be a positive number.');
+        return;
+      }
+
+      // Validate slippage
+      const slippage = Number(slippageInput);
+      if (isNaN(slippage) || slippage < 0) {
+        await ctx.reply('❗ Slippage must be a non-negative number.');
+        return;
+      }
+
+      // Validate limit price for limit orders
+      let limitPrice: number | null = null;
+      if (orderType === 'limit') {
+        if (!limitPriceInput) {
+          await ctx.reply('❗ Limit price is required for limit orders.');
+          return;
+        }
+        limitPrice = Number(limitPriceInput);
+        if (isNaN(limitPrice) || limitPrice <= 0) {
+          await ctx.reply('❗ Limit price must be a positive number.');
+          return;
+        }
+      }
+
+      // Get user and wallet
+      const sessionManager = SessionManager.getInstance();
+      const stakeId = await sessionManager.getKey(telegramId, REDIS_KEY.STAKE_ID);
+
+      let wallet: Wallet | null = null;
+
+      if (stakeId) {
+        wallet = await WalletService.findWalletByStakeId(stakeId);
+      }
+
+      if (!wallet) {
+        const user = await getCurrentUser(telegramId);
+        if (!user || !user.id) {
+          await ctx.reply('❗ User account not found.');
+          return;
+        }
+
+        wallet = await WalletService.findDefaultWalletByUserId(user.id);
+      }
+
+      if (!wallet || !wallet.id) {
+        await ctx.reply('❗ No wallet found for your account.');
+        return;
+      }
+
+      // Get token pair
+      const tokenPairId = await TokenPairService.getTokenPairIdByPairName(tokenPairName);
+
+      // Create order
+      const currentDate = new Date();
+      const nextMonthDate = new Date();
+      nextMonthDate.setMonth(currentDate.getMonth() + 1);
+
+      const order: Prisma.OrderUncheckedCreateInput = {
+        walletId: wallet.id,
+        tokenPairId: tokenPairId,
+        orderType: orderType === 'market' ? OrderType.Market : OrderType.Limit,
+        status: OrderStatus.PENDING,
+        amount: new Decimal(amount),
+        slippage: new Decimal(slippage),
+        limitPrice: limitPrice ? new Decimal(limitPrice) : null,
+        expirationTime: nextMonthDate,
+        createdAt: currentDate,
+      };
+
+      await OrderService.createOrder(order);
+
+      await ctx.reply(
+        `✅ <b>Order Created Successfully!</b>\n\n` +
+        `📊 <b>Order Summary:</b>\n` +
+        `• Token Pair: <b>${tokenPairName}</b>\n` +
+        `• Order Type: <b>${orderType.charAt(0).toUpperCase() + orderType.slice(1)}</b>\n` +
+        `• Amount: <b>${amount}</b>\n` +
+        `• Slippage: <b>${slippage}%</b>${limitPrice ? `\n• Limit Price: <b>${limitPrice}</b>` : ''}\n\n` +
+        `🕐 Expiration: ${nextMonthDate.toLocaleString()}`,
+        { parse_mode: 'HTML' }
+      );
+    } catch (error) {
+      await ctx.reply(`❗ Failed to create order: ${(error as { message: string }).message}`);
+    }
+  },
+};
