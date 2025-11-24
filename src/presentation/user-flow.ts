@@ -1,31 +1,147 @@
+import { Blockfrost, Lucid } from '@spacebudz/lucid';
+import { generateMnemonic } from 'bip39';
+import { InlineKeyboard } from 'grammy';
+import {
+  BLOCKFROST_API_URL,
+  BLOCKFROST_PROJECT_ID,
+  REDIS_KEY,
+  REDIS_TTL,
+} from '../application/helpers/constants';
 import { CreateAddressModel } from '../application/services/address/model';
 import { AddressService } from '../application/services/address/service';
 import { CreateUserModel, RegisterUserDto } from '../application/services/user/model';
 import { UserService } from '../application/services/user/service';
 import { CreateWalletModel } from '../application/services/wallet/model';
 import { WalletService } from '../application/services/wallet/service';
-import AesUtils from '../domain/extensions/AesUtils';
 import SessionManager from '../application/utils/session/SessionManager';
-import * as BlockFrostAPI from '../infrastructure/blockfrost/blockfrost-api';
+import AesUtils from '../domain/extensions/AesUtils';
 import { CommandFlow } from './base-flow';
-import * as crypto from 'crypto';
-import { REDIS_KEY } from '../application/helpers/constants';
 
-const encryptPrivateKey = (
-  privateKey: string,
-  password: string
-): { encryptedKey: string; salt: string } => {
-  const aesUtils = AesUtils.getInstance();
-  const salt = crypto.randomBytes(16).toString('hex');
-  const saltedPassword = password + salt;
-  aesUtils.generateKey(saltedPassword);
-  const encryptedKey = aesUtils.encrypt(privateKey);
-  return { encryptedKey, salt };
-};
+const aesUtils = AesUtils.getInstance();
 
-const storePrivateKeyToSession = async (telegramId: string, decryptedPrivateKey: string) => {
-  const sessionManager = SessionManager.getInstance();
-  await sessionManager.setKey(telegramId, decryptedPrivateKey, REDIS_KEY.PRIVATE_KEY);
+// Create inline keyboard for terms agreement
+const termsKeyboard = new InlineKeyboard()
+  .text('✅ I Agree', 'I Agree')
+  .text('❌ I Do Not Agree', 'I Do Not Agree');
+
+export const createAccountV2Flow: CommandFlow = {
+  steps: [
+    {
+      prompt: `
+      📜 Terms of Agreement – Cardano Trading Bot
+
+      1. Wallet Creation & Asset Management  
+        - The bot will automatically create a Cardano wallet for each user.  
+        - You are fully responsible for securely storing your seed phrase/private key (if provided).  
+        - We are NOT liable for any loss caused by leaking or misplacing your seed phrase/private key.  
+
+      2. Trading Risks  
+        - All blockchain transactions on Cardano are IRREVERSIBLE.  
+        - You are solely responsible for all trading actions made through this bot.  
+        - Token prices are highly volatile and may result in a total or partial loss of assets.  
+
+      3. Limitation of Liability  
+        - The bot only serves as a trading tool.  
+        - We do NOT guarantee profits and are NOT responsible for any direct or indirect losses.  
+
+      4. Privacy & Security  
+        - The bot may store minimal user data (e.g., Telegram ID, wallet address) for functionality.  
+        - Seed phrases/private keys will never be stored in plain text.  
+        - By using this bot, you agree that some transaction data may be analyzed to improve the service.  
+
+      5. Acceptance of Terms  
+        - By using this bot, you automatically accept these Terms of Agreement.  
+        - If you do not agree, please stop using the bot.  
+
+      ⚠️ By pressing "I Agree", you confirm that you have read, understood, and accepted these terms.
+
+      Please choose your response:`,
+      keyboard: termsKeyboard,
+      validate: (input) => ['I Agree', 'I Do Not Agree'].includes(input),
+      process: (state, input) => {
+        state.termsAccepted = input === 'I Agree';
+      },
+    },
+    {
+      prompt: 'Please enter a password to secure your wallet:',
+      process: (state, input) => {
+        state.password = input;
+      },
+    },
+    {
+      prompt: 'Please confirm your password:',
+      process: (state, input) => {
+        state.confirmPassword = input;
+      },
+      jumpToStep: (state, input) => {
+        // If passwords don't match, jump back to password step (index 1)
+        if (state.password !== input) {
+          delete state.password; // Clear the previous password
+          delete state.confirmPassword; // Clear confirm password
+          return 1; // Jump back to the password step
+        }
+        return null; // Continue to next step
+      },
+      validate: (input) => {
+        return input.trim().length > 0;
+      },
+    },
+  ],
+  finalize: async (ctx, state) => {
+    try {
+      if (!state.termsAccepted) {
+        await ctx.reply(
+          `❌ You have declined the Terms of Agreement. The bot session will now end. 
+          
+          If you want to join in the future, just type /start and accept the terms. See you soon.`
+        );
+        await ctx.reply('👋 Goodbye!');
+        return;
+      }
+
+      await ctx.reply(
+        '✅ Thank you for accepting our Terms of Agreement. Creating your account...'
+      );
+
+      const telegramId = ctx.from?.id?.toString();
+      if (!telegramId) {
+        await ctx.reply('Could not identify your Telegram ID.');
+        return;
+      }
+
+      const lucid = new Lucid({
+        provider: new Blockfrost(BLOCKFROST_API_URL, BLOCKFROST_PROJECT_ID),
+      });
+
+      // 1. Generate seed phrase (mnemonic)
+      const mnemonic = generateMnemonic(256); // 256 bits for 24 words
+      lucid.selectWalletFromSeed(mnemonic);
+
+      const address = await lucid.wallet.address();
+      const stakeId = await lucid.wallet.rewardAddress();
+
+      const { encryptedKey, salt } = aesUtils.encryptPrivateKey(mnemonic, state.password);
+
+      const registerUserDto: RegisterUserDto = {
+        telegramId,
+        username: ctx.from?.username || 'TEXer',
+        stakeAddress: stakeId!,
+        encryptedPrivateKey: encryptedKey,
+        salt,
+        addresses: [address],
+      };
+      const { userId } = await createUser(registerUserDto);
+      const { walletId } = await createWallet(userId, registerUserDto);
+      await createAddress(walletId, registerUserDto);
+
+      await storePrivateKeyToSession(telegramId, mnemonic);
+
+      await ctx.reply('🎉 Account created successfully!');
+    } catch (error) {
+      console.error('Error in createAccountV2Flow:', error);
+      await ctx.reply('❌ An error occurred while creating your account. Please try again later.');
+    }
+  },
 };
 
 const createUser = async (dto: RegisterUserDto): Promise<{ userId: string }> => {
@@ -60,102 +176,28 @@ const createAddress = async (walletId: string, dto: RegisterUserDto) => {
   await AddressService.createAddresses(addressData);
 };
 
-const isSingleWallet = async (telegramId: string): Promise<boolean> => {
-  const user = await UserService.findByTelegramId(telegramId);
-  if (!user) return true;
-  const wallets = await WalletService.findWalletsByUserId(user.id);
-  if (!wallets || wallets.length == 0) return true;
-  return false;
+const storePrivateKeyToSession = async (telegramId: string, decryptedPrivateKey: string) => {
+  const sessionManager = SessionManager.getInstance();
+  await sessionManager.setKey(
+    telegramId,
+    decryptedPrivateKey,
+    REDIS_KEY.PRIVATE_KEY,
+    REDIS_TTL.OneDay
+  );
 };
 
-export const createAccountFlow: CommandFlow = {
+export const getSeedPhrase: CommandFlow = {
   steps: [
     {
-      prompt: 'Please enter the stake address:',
+      prompt: 'Please confirm to retrieve your private key: 1 (Confirm), 2 (Cancel)',
       process: (state, input) => {
-        state.stakeAddress = input.trim();
+        state.onOk = input;
       },
     },
     {
       prompt: 'Please enter the password:',
       process: (state, input) => {
         state.password = input;
-      },
-    },
-    {
-      prompt: 'Please enter the private key:',
-      process: (state, input) => {
-        state.privateKey = input.trim();
-      },
-    },
-  ],
-  finalize: async (ctx, state) => {
-    try {
-      const telegramId = ctx.from?.id?.toString();
-
-      if (!telegramId) {
-        await ctx.reply('Could not identify your Telegram ID.');
-        return;
-      }
-
-      if (!state.stakeAddress || !state.password || !state.privateKey) {
-        await ctx.reply('Missing required information. Please try again.');
-        return;
-      }
-
-      const addresses = await BlockFrostAPI.getAddressesByStakeAddress(state.stakeAddress);
-      if (!addresses || addresses.length === 0) {
-        await ctx.reply('No addresses found for the provided stake address.');
-        return;
-      }
-
-      const isExistStateAddress = await WalletService.findWalletByStakeId(state.stakeAddress);
-      if (isExistStateAddress) {
-        await ctx.reply('A wallet with this stakeId already exists.');
-        return;
-      }
-
-      // encrypt private key and register wallet
-      const { encryptedKey, salt } = encryptPrivateKey(state.privateKey, state.password);
-      const registerUserDto: RegisterUserDto = {
-        telegramId,
-        username: ctx.from?.username || '',
-        stakeAddress: state.stakeAddress,
-        encryptedPrivateKey: encryptedKey,
-        salt,
-        addresses,
-      };
-
-      // Check if user already exists, if not create new one
-      let user = await UserService.findByTelegramId(telegramId);
-      let userId: string;
-      if (!user) {
-        const result = await createUser(registerUserDto);
-        userId = result.userId;
-      } else {
-        userId = user.id;
-      }
-
-      // Create wallet and address
-      const { walletId } = await createWallet(userId, registerUserDto);
-      await createAddress(walletId, registerUserDto);
-
-      // store privateKey to session
-      await storePrivateKeyToSession(telegramId, state.privateKey);
-      await ctx.reply(`Create successfully. Type '/login' to login wallet`);
-    } catch (error) {
-      console.error('Finalize Error:', error);
-      await ctx.reply(`❌ Failed to create account. Try again!`);
-    }
-  },
-};
-
-export const usePrivateKeyFlow: CommandFlow = {
-  steps: [
-    {
-      prompt: 'Please confirm to retrieve your private key: 1 (Confirm), 2 (Cancel)',
-      process: (state, input) => {
-        state.onOk = input;
       },
     },
   ],
@@ -173,26 +215,10 @@ export const usePrivateKeyFlow: CommandFlow = {
         return;
       }
 
-      const sessionManager = SessionManager.getInstance();
-      const privateKey = await sessionManager.getKey(telegramId, REDIS_KEY.PRIVATE_KEY);
+      const privateKey = await WalletService.getDecryptedPrivateKey(telegramId, state.password);
 
-      if (!privateKey) {
-        await ctx.reply('No private key found in session. Please register or log in again.');
-        return;
-      }
-
-      // Safely display the privateKey: show first 3 characters, then ***, then last 5 characters
-      let maskedPrivateKey: string;
-
-      if (privateKey.length <= 8) {
-        // If the privateKey is 8 characters or shorter, show partial start and end with *** in the middle
-        maskedPrivateKey = `${privateKey.slice(0, Math.min(3, privateKey.length))}***${privateKey.slice(-Math.min(5, privateKey.length))}`;
-      } else {
-        // For longer keys, show the first 3 and last 5 characters with *** in between
-        maskedPrivateKey = `${privateKey.slice(0, 3)}***${privateKey.slice(-5)}`;
-      }
-
-      await ctx.reply(`Your private key from session: ${maskedPrivateKey}`);
+      await ctx.reply(`Please delete the message ASAP, your private key is: 
+        ${privateKey}`);
     } catch (error) {
       console.error('Use Private Key Error:', error);
       await ctx.reply(`Failed to retrieve private key. Try again!`);
@@ -202,13 +228,6 @@ export const usePrivateKeyFlow: CommandFlow = {
 
 export const loginFlow: CommandFlow = {
   steps: [
-    {
-      prompt: 'Please enter your stake address:',
-      process: (state, input) => {
-        state.stakeAddress = input.trim();
-      },
-      skip: async (state) => await isSingleWallet(state.from?.id),
-    },
     {
       prompt: 'Please enter your password:',
       process: (state, input) => {
@@ -225,15 +244,12 @@ export const loginFlow: CommandFlow = {
         return;
       }
 
-      if (!state.stakeAddress) {
-        await ctx.reply('Stake address is required. Please try again.');
-        return;
-      }
-
       if (!state.password) {
         await ctx.reply('Password is required. Please try again.');
         return;
       }
+
+      const privateKey = await WalletService.getDecryptedPrivateKey(telegramId, state.password);
 
       const user = await UserService.findByTelegramId(telegramId);
       if (!user) {
@@ -241,34 +257,13 @@ export const loginFlow: CommandFlow = {
         return;
       }
 
-      const wallet = await WalletService.findWalletByStakeId(state.stakeAddress);
-      if (!wallet) {
-        await ctx.reply('No wallet found for this stake address. Please register a wallet.');
-        return;
-      }
-
-      if (!wallet.hashedKey || !wallet.salt) {
-        await ctx.reply('Wallet data is incomplete. Please contact support.');
-        return;
-      }
-
-      const aesUtils = AesUtils.getInstance();
-      const saltedPassword = state.password + wallet.salt;
-      aesUtils.generateKey(saltedPassword);
-      let decryptedPrivateKey: string;
-      try {
-        decryptedPrivateKey = aesUtils.decrypt(wallet.hashedKey);
-      } catch (error: any) {
-        if (error.message.includes('bad decrypt')) {
-          await ctx.reply('Incorrect password. Please try again.');
-          return;
-        }
-        throw error;
-      }
-
-      storePrivateKeyToSession(telegramId, decryptedPrivateKey);
+      storePrivateKeyToSession(telegramId, privateKey);
       await ctx.reply(`Welcome back, ${user.username}!`);
-    } catch (error) {
+    } catch (error: any) {
+      if (error.message.includes('bad decrypt')) {
+        await ctx.reply('Incorrect password. Please try again.');
+        return;
+      }
       console.error('Login Error:', error);
       await ctx.reply(`❌ Login failed. Try again !`);
     }

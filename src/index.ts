@@ -12,6 +12,7 @@ import {
   orderInfoFlow,
   orderStatusFlow,
   pricingFlow,
+  quickOrderFlow,
 } from './presentation/order-flow';
 import {
   watchlistAddFlow,
@@ -19,7 +20,7 @@ import {
   watchlistRemoveFlow,
 } from './presentation/watchlist-flow';
 import { setupMenu } from './presentation/menu';
-import { createAccountV2Flow, getSeedPhrase, loginFlow } from './presentation/user-flow-v2';
+import { createAccountV2Flow, getSeedPhrase, loginFlow } from './presentation/user-flow';
 
 async function main() {
   const bot = new Bot(BOT_TOKEN);
@@ -33,6 +34,10 @@ async function main() {
   //#region Swapping
   bot.command('swap', (ctx) => {
     startFlow(ctx, createOrderFlow);
+  });
+
+  bot.command('fast', (ctx) => {
+    startFlow(ctx, quickOrderFlow);
   });
 
   bot.command('pricing', async (ctx) => {

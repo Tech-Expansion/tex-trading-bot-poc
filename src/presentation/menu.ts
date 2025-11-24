@@ -1,8 +1,8 @@
 import { Bot, InlineKeyboard } from 'grammy';
 import { startFlow } from './base-flow';
-import { createAccountFlow, loginFlow, usePrivateKeyFlow } from './user-flow';
 import { createOrderFlow, orderHistoryFlow, orderStatusFlow, pricingFlow } from './order-flow';
 import { watchlistAddFlow, watchlistFlow, watchlistRemoveFlow } from './watchlist-flow';
+import { getSeedPhrase, loginFlow } from './user-flow';
 
 export function setupMenu(bot: Bot) {
   // Main menu
@@ -21,7 +21,6 @@ export function setupMenu(bot: Bot) {
   // Profile submenu
   bot.callbackQuery('menu_profile', async (ctx) => {
     const keyboard = new InlineKeyboard()
-      .text('📝 Register', 'profile_register')
       .text('🔐 Login', 'profile_login')
       .text('🔑 Private Key', 'profile_privateKey')
       .row()
@@ -78,11 +77,6 @@ export function setupMenu(bot: Bot) {
   });
 
   // Profile actions
-  bot.callbackQuery('profile_register', async (ctx) => {
-    await ctx.answerCallbackQuery();
-    startFlow(ctx, createAccountFlow);
-  });
-
   bot.callbackQuery('profile_login', async (ctx) => {
     await ctx.answerCallbackQuery();
     startFlow(ctx, loginFlow);
@@ -90,7 +84,7 @@ export function setupMenu(bot: Bot) {
 
   bot.callbackQuery('profile_privateKey', async (ctx) => {
     await ctx.answerCallbackQuery();
-    startFlow(ctx, usePrivateKeyFlow);
+    startFlow(ctx, getSeedPhrase);
   });
 
   // Trading actions

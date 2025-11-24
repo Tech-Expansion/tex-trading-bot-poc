@@ -71,6 +71,7 @@ CREATE TABLE "TokenPairHistoryPrice" (
 -- CreateTable
 CREATE TABLE "Order" (
     "id" UUID NOT NULL,
+    "orderCode" VARCHAR(32),
     "walletId" UUID NOT NULL,
     "tokenPairId" UUID NOT NULL,
     "orderType" INTEGER NOT NULL,
@@ -115,6 +116,15 @@ CREATE UNIQUE INDEX "Wallet_stakeId_key" ON "Wallet"("stakeId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Address_address_key" ON "Address"("address");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Token_policyId_tokenHexName_key" ON "Token"("policyId", "tokenHexName");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "TokenPair_tokenAId_tokenBId_poolId_key" ON "TokenPair"("tokenAId", "tokenBId", "poolId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Order_orderCode_key" ON "Order"("orderCode");
 
 -- AddForeignKey
 ALTER TABLE "Wallet" ADD CONSTRAINT "Wallet_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
